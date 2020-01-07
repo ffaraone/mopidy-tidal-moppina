@@ -24,7 +24,6 @@ def to_albums(tidal_albums):
 def to_album(tidal_album, artist):
     if artist is None:
         artist = to_artist(tidal_album.artist)
-    logger.debug(tidal_album)
     return Album(uri='tidal-moppina:album:' + str(tidal_album.id),
                  name=tidal_album.name,
                  artists=[artist])

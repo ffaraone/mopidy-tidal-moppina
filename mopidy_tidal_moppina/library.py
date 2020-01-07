@@ -94,27 +94,27 @@ class TidalMoppinaLibraryProvider(backend.LibraryProvider):
         parts = uri.split(':')
         nr_of_parts = len(parts)
 
-        # if nr_of_parts == 3 and parts[1] == "album":
-        #     return ref_models_mappers.create_tracks(
-        #             session.get_album_tracks(parts[2]))
+        if nr_of_parts == 3 and parts[1] == "album":
+            return utils.to_tracks_ref(
+                    session.get_album_tracks(parts[2]))
 
-        # if nr_of_parts == 3 and parts[1] == "artist":
-        #     top_10_tracks = session.get_artist_top_tracks(parts[2])[:10]
-        #     albums = ref_models_mappers.create_albums(
-        #             session.get_artist_albums(parts[2]))
-        #     return albums + ref_models_mappers.create_tracks(top_10_tracks)
+        if nr_of_parts == 3 and parts[1] == "artist":
+            top_10_tracks = session.get_artist_top_tracks(parts[2])[:10]
+            albums = utils.to_albums_ref(
+                    session.get_artist_albums(parts[2]))
+            return albums + utils.to_tracks_ref(top_10_tracks)
 
-        # if nr_of_parts == 3 and parts[1] == "playlist":
-        #     return ref_models_mappers.create_tracks(
-        #         session.get_playlist_tracks(parts[2]))
+        if nr_of_parts == 3 and parts[1] == "playlist":
+            return utils.to_tracks_ref(
+                session.get_playlist_tracks(parts[2]))
 
-        # if nr_of_parts == 3 and parts[1] == "mood":
-        #     return ref_models_mappers.create_playlists(
-        #         session.get_mood_playlists(parts[2]))
+        if nr_of_parts == 3 and parts[1] == "mood":
+            return utils.to_playlists_ref(
+                session.get_mood_playlists(parts[2]))
 
-        # if nr_of_parts == 3 and parts[1] == "genre":
-        #     return ref_models_mappers.create_playlists(
-        #         session.get_genre_items(parts[2], 'playlists'))
+        if nr_of_parts == 3 and parts[1] == "genre":
+            return utils.to_playlists_ref(
+                session.get_genre_items(parts[2], 'playlists'))
 
         logger.debug('Unknown uri for browse request: %s', uri)
         return []
@@ -136,40 +136,27 @@ class TidalMoppinaLibraryProvider(backend.LibraryProvider):
         logger.debug("Searching Tidal for images for %r" % uris)
         session = self.backend._session
         images = {}
-        # for uri in uris:
-        #     uri_images = None
-        #     if uri.startswith('tidal-moppina:'):
-        #         parts = uri.split(':')
-        #         if parts[1] == 'artist':
-        #             artist_id = parts[2]
-        #             img_uri = self.lru_artist_img.hit(artist_id)
-        #             if img_uri is None:
-        #                 artist = session.get_artist(artist_id)
-        #                 img_uri = artist.image
-        #                 self.lru_artist_img[artist.id] = img_uri
+        for uri in uris:
+            uri_images = None
+            if uri.startswith('tidal-moppina:'):
+                parts = uri.split(':')
+                if parts[1] == 'artist':
+                    artist_id = parts[2]
+                    artist = session.get_artist(artist_id)
+                    img_uri = artist.image
+                    uri_images = [Image(uri=img_uri, width=512, height=512)]
+                elif parts[1] == 'album':
+                    album_id = parts[2]
+                    album = session.get_album(album_id)
+                    img_uri = album.image
+                    uri_images = [Image(uri=img_uri, width=512, height=512)]
+                elif parts[1] == 'track':
+                    album_id = parts[3]
+                    album = session.get_album(album_id)
+                    img_uri = album.image
+                    uri_images = [Image(uri=img_uri, width=512, height=512)]
 
-        #             uri_images = [Image(uri=img_uri, width=512, height=512)]
-        #         elif parts[1] == 'album':
-        #             album_id = parts[2]
-        #             img_uri = self.lru_album_img.hit(album_id)
-        #             if img_uri is None:
-        #                 album = session.get_album(album_id)
-        #                 img_uri = album.image
-        #                 self.lru_album_img[album_id] = img_uri
-
-        #             uri_images = [Image(uri=img_uri, width=512, height=512)]
-        #         elif parts[1] == 'track':
-        #             album_id = parts[3]
-        #             img_uri = self.lru_album_img.hit(album_id)
-        #             if img_uri is None:
-        #                 album = session.get_album(album_id)
-        #                 img_uri = album.image
-        #                 self.lru_album_img[album_id] = img_uri
-
-        #             uri_images = [Image(uri=img_uri, width=512, height=512)]
-        #             pass
-
-        #     images[uri] = uri_images or ()
+            images[uri] = uri_images or ()
         return images
 
     def lookup(self, uris=None):
