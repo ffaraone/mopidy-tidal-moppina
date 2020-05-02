@@ -1,25 +1,33 @@
 import logging
-
+from hashlib import sha256
 from mopidy import backend, models
+from mopidy.models import Image, Ref, SearchResult
 
-from mopidy.models import Image, SearchResult, Ref
+from mopidy_tidal_moppina.directory import Directory
+from mopidy_tidal_moppina.utils import (new_album_image, new_album_ref,
+                                        new_artist_image, new_artist_ref,
+                                        new_track_ref, new_album, new_track, new_artist)
 
-
-from . import utils
-
-from .search import tidal_search
-
+# from . import utils
+# from .search import tidal_search
 
 logger = logging.getLogger(__name__)
 
 
+
+
 class TidalMoppinaLibraryProvider(backend.LibraryProvider):
-    root_directory = models.Ref.directory(uri='tidal-moppina:directory', name='Tidal')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._uri_scheme = self.backend.uri_schemes[0]
+        self._directory = Directory(self._uri_scheme)
+        self._tidal = self.backend.get_tidal()
+        self.root_directory = self._directory.root
+
 
     def get_distinct(self, field, query=None):
+        logger.debug('get_distict field=%s, query=%s', field, query)
         # logger.debug("Browsing distinct %s with query %r", field, query)
         # session = self.backend._session
 
@@ -52,149 +60,189 @@ class TidalMoppinaLibraryProvider(backend.LibraryProvider):
         #     pass
 
         return []
-
     def browse(self, uri):
-        logger.info("Browsing uri %s", uri)
-        if not uri or not uri.startswith("tidal-moppina:"):
+        if not uri or not uri.startswith(self._uri_scheme):
             return []
 
-        session = self.backend._session
-
-        # summaries
-
         if uri == self.root_directory.uri:
-            return [Ref.directory(uri="tidal-moppina:genres", name="Genres"),
-                    Ref.directory(uri="tidal-moppina:moods", name="Moods"),
-                    Ref.directory(uri="tidal-moppina:my_artists", name="My Artists"),
-                    Ref.directory(uri="tidal-moppina:my_albums", name="My Albums"),
-                    Ref.directory(uri="tidal-moppina:my_playlists", name="My Playlists"),
-                    Ref.directory(uri="tidal-moppina:my_tracks", name="My Tracks")]
+            return list(self._directory.get(uri).values())
 
-        elif uri == "tidal-moppina:my_artists":
-            return utils.to_artists_ref(
-                    session.user.favorites.artists())
-        elif uri == "tidal-moppina:my_albums":
-            return utils.to_albums_ref(
-                    session.user.favorites.albums())
-        elif uri == "tidal-moppina:my_playlists":
-            return utils.to_playlists_ref(
-                    session.user.favorites.playlists())
-        elif uri == "tidal-moppina:my_tracks":
-            return utils.to_tracks_ref(
-                    session.user.favorites.tracks())
-        elif uri == "tidal-moppina:moods":
-            return utils.to_moods_ref(
-                    session.get_moods())
-        elif uri == "tidal-moppina:genres":
-            return utils.to_genres_ref(
-                    session.get_genres())
-
-        # details
-
-        parts = uri.split(':')
-        nr_of_parts = len(parts)
-
-        if nr_of_parts == 3 and parts[1] == "album":
-            return utils.to_tracks_ref(
-                    session.get_album_tracks(parts[2]))
-
-        if nr_of_parts == 3 and parts[1] == "artist":
-            top_10_tracks = session.get_artist_top_tracks(parts[2])[:10]
-            albums = utils.to_albums_ref(
-                    session.get_artist_albums(parts[2]))
-            return albums + utils.to_tracks_ref(top_10_tracks)
-
-        if nr_of_parts == 3 and parts[1] == "playlist":
-            return utils.to_tracks_ref(
-                session.get_playlist_tracks(parts[2]))
-
-        if nr_of_parts == 3 and parts[1] == "mood":
-            return utils.to_playlists_ref(
-                session.get_mood_playlists(parts[2]))
-
-        if nr_of_parts == 3 and parts[1] == "genre":
-            return utils.to_playlists_ref(
-                session.get_genre_items(parts[2], 'playlists'))
-
-        logger.debug('Unknown uri for browse request: %s', uri)
+        _, ref_type, path = uri.split(':', 2)
+        if ref_type == 'directory':
+            if path == 'my_artists':
+                data = self._tidal.my_artists()
+                my_artists = [
+                    new_artist_ref(
+                        self._uri_scheme, 
+                        artist['item']['name'],
+                        [str(artist['item']['id'])],
+                    )
+                    for artist in data
+                ]
+                return my_artists
+        if ref_type == 'artist':
+            data = self._tidal.artist_albums(path)
+            albums = [
+                new_album_ref(
+                    self._uri_scheme,
+                    album['title'],
+                    [str(album['id'])],
+                )
+                for album in data
+            ]
+            return albums
+        if ref_type == 'album':
+            data = self._tidal.album_tracks(path)
+            tracks = [
+                new_track_ref(
+                    self._uri_scheme,
+                    track['title'],
+                    [str(track['id'])],
+                )
+                for track in data
+            ]
+            logger.debug('tracks of album %s=%s', path, tracks)
+            return tracks
         return []
 
+    def _get_track(self, track):
+        return new_track(
+            self._uri_scheme,
+            track['title'],
+            [str(track['id'])],
+            artists=[
+                self._get_artist(artist)
+                for artist in track['artists']
+            ],
+            album=self._get_album(track['album']),
+            disc_no=track['volumeNumber'],
+            track_no=track['trackNumber'],
+            length=track['duration'] * 1000,
+        )
+
+    def _get_album(self, album):
+        return new_album(
+            self._uri_scheme,
+            album['title'],
+            [str(album['id'])],
+            artists=[
+                self._get_artist(artist)
+                for artist in album.get('artists', [])
+            ],
+            num_tracks=album.get('numberOfTracks', 0),
+            num_discs=album.get('numberOfVolumes', 0),
+            date=album.get('releaseDate', '')
+        )
+
+    def _get_artist(self, artist):
+        return new_artist(
+            self._uri_scheme,
+            artist['name'],
+            [str(artist['id'])]
+        )
+
+    def _perform_search(self, field, query):
+        keywords = query[field]
+        search_query = ' '.join(keywords)
+        search_id = sha256(bytes(search_query, encoding='utf-8')).hexdigest()
+        data = self._tidal.search(field, search_query)
+        method = getattr(self, f"_get_{field}")
+        results = [ method(item) for item in data ]
+        kwargs = {
+            "uri": f"{self._uri_scheme}:search:{field}:{search_id}",
+            "artists": [],
+            "albums": [],
+            "tracks": [],
+        }
+        kwargs[f"{field}s"] = results
+        return SearchResult(**kwargs)
+
     def search(self, query=None, uris=None, exact=False):
-        try:
-            artists, albums, tracks = \
-                tidal_search(self.backend._session,
-                             query=query,
-                             exact=exact)
-            return SearchResult(artists=artists,
-                                albums=albums,
-                                tracks=tracks)
-        except Exception as ex:
-            logger.info("EX")
-            logger.info("%r", ex)
+        # TODO check if query is for me
+        logger.debug('query=%s, uris=%s, exact=%s', query, uris, exact)
+        
+        if 'any' in query:
+            query['album'] = query['any']
+            query['artist'] = query['any']
+            query['track'] = query['any']
+            res = SearchResult(
+                uri='tidal-moppina:search:any',
+                albums=self._perform_search('album', query).albums,
+                artists=self._perform_search('artist', query).artists,
+                tracks=self._perform_search('track', query).tracks,
+            )
+            return res
+        if 'album' in query:
+            query['artist'] = query['album']
+            res = SearchResult(
+                uri='tidal-moppina:search:album',
+                albums=self._perform_search('album', query).albums,
+                artists=self._perform_search('artist', query).artists,
+                tracks=[],
+            )
+            return res
+        if 'artist' in query:
+            return SearchResult(
+                uri='tidal-moppina:search:artist',
+                artists=self._perform_search('artist', query).artists,
+                albums=[],
+                tracks=[],
+            )
+
+        return SearchResult(uri="tidal-moppina:search:any", artists=[], albums=[], tracks=[])
 
     def get_images(self, uris):
-        logger.debug("Searching Tidal for images for %r" % uris)
-        session = self.backend._session
+        logger.debug("Searching Tidal for images for %s" % uris)
+        if not uris:
+            return {}
         images = {}
         for uri in uris:
-            uri_images = None
-            if uri.startswith('tidal-moppina:'):
-                parts = uri.split(':')
-                if parts[1] == 'artist':
-                    artist_id = parts[2]
-                    artist = session.get_artist(artist_id)
-                    img_uri = artist.image
-                    uri_images = [Image(uri=img_uri, width=512, height=512)]
-                elif parts[1] == 'album':
-                    album_id = parts[2]
-                    album = session.get_album(album_id)
-                    img_uri = album.image
-                    uri_images = [Image(uri=img_uri, width=512, height=512)]
-                elif parts[1] == 'track':
-                    album_id = parts[3]
-                    album = session.get_album(album_id)
-                    img_uri = album.image
-                    uri_images = [Image(uri=img_uri, width=512, height=512)]
+            if not uri.startswith(self._uri_scheme):
+                continue
+            sub_uri = uri[len(self._uri_scheme) + 1:]
+            if sub_uri.startswith('directory'):
+                continue
+            ref_type, obj_id = sub_uri.split(':', 1)
+            logger.debug('retries %s (%s)', ref_type, obj_id)
+            if ref_type == 'artist':
+                images[uri] = [new_artist_image(obj_id)]
+            if ref_type == 'album':
+                images[uri] = [new_album_image(obj_id)]
 
-            images[uri] = uri_images or ()
         return images
 
     def lookup(self, uris=None):
-        logger.info("Lookup uris %r", uris)
-        session = self.backend._session
-        if isinstance(uris, str):
-            uris = [uris]
+        try:
+            logger.info("Lookup uris %r", uris)
+            if isinstance(uris, str):
+                uris = [uris]
 
-        tracks = []
-        for uri in uris:
-            parts = uri.split(':')
-            logger.debug('YaTe -> uri=%s, parts=%s', uri, parts)
-            if uri.startswith('tidal-moppina:track:'):
-                tracks += self._lookup_track(session, parts)
-            elif uri.startswith('tidal-moppina:album'):
-                tracks += self._lookup_album(session, parts)
-            elif uri.startswith('tidal-moppina:artist'):
-                tracks += self._lookup_artist(session, parts)
-
-        logger.info("Returning %d tracks", len(tracks))
-        return tracks
-
-    def _lookup_track(self, session, parts):
-        album_id = parts[3]
-        tracks = session.get_album_tracks(album_id)
-
-        track = [t for t in tracks if t.id == int(parts[4])][0]
-        artist = utils.to_artist(track.artist)
-        album = utils.to_album(track.album, artist)
-        return [utils.to_track(artist, album, track)]
-
-    def _lookup_album(self, session, parts):
-        album_id = parts[2]
-        logger.debug('YaTe -> lookup album %s', album_id)
-        tracks = session.get_album_tracks(album_id)
-        return utils.to_tracks(tracks)
-
-    def _lookup_artist(self, session, parts):
-        artist_id = parts[2]
-        artist_tracks = session.get_artist_top_tracks(artist_id)
-        return utils.to_tracks(artist_tracks)
+            tracks = []
+            for uri in uris:
+                _, ref_type, obj_id = uri.split(':', 2)
+               
+                if ref_type == 'track':
+                    track = self._tidal.track(obj_id)
+                    artists = [
+                        self._get_artist(artist)
+                        for artist in track['artists']
+                    ]
+                    track = new_track(
+                        self._uri_scheme,
+                        track['title'],
+                        [str(track['id'])],
+                        artists=artists,
+                        album=self._get_album(track['album']),
+                        disc_no=track['volumeNumber'],
+                        track_no=track['trackNumber'],
+                        length=track['duration'] * 1000,
+                    )
+                    return [track]
+                if ref_type == 'album':
+                    tracks = self._tidal.album_tracks(obj_id)
+                    return [
+                        self._get_track(track)
+                        for track in tracks
+                    ]
+        except Exception:
+            logger.exception('cannot lookup uris %s', uris)

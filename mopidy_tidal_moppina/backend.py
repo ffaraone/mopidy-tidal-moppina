@@ -7,8 +7,9 @@ from mopidy import backend, httpclient
 
 from tidalapi import Session, Config, Quality
 
-from .playback import TidalMoppinaPlaybackProvider
-from .library import TidalMoppinaLibraryProvider
+from mopidy_tidal_moppina.playback import TidalMoppinaPlaybackProvider
+from mopidy_tidal_moppina.library import TidalMoppinaLibraryProvider
+from mopidy_tidal_moppina.tidal import TidalClient
 
 logger = logging.getLogger(__name__)
 
@@ -19,20 +20,19 @@ class TidalMoppinaBackend(pykka.ThreadingActor, backend.Backend):
         super().__init__()
         self._config = config
         self._audio = audio
-        self._session = None
+        self.uri_schemes = ['tidal-moppina']
         self._username = self._config['tidal-moppina']['username']
         self._password = self._config['tidal-moppina']['password']
         self._quality = self._config['tidal-moppina']['quality'] or ''
+        self._tidal = TidalClient(self._username, self._password)
         self.playback = TidalMoppinaPlaybackProvider(audio=audio, backend=self)
         self.library = TidalMoppinaLibraryProvider(backend=self)
         self.playlists = None
         # self.playlists = playlists.TidalPlaylistsProvider(backend=self)
-        self.uri_schemes = ['tidal-moppina']
-
+        
     def on_start(self):
-        quality = getattr(Quality, self._quality, Quality.lossless)
-        self._session = Session(Config(quality=quality))
-        if self._session.login(self._username, self._password):
-            logger.info('YaTe -> logged in as %s', self._username)
-        else:
-            logger.error('YaTe -> Cannot log in user %s', self._username)
+        self._tidal.login()
+        logger.info('Tidal-Moppina started')
+
+    def get_tidal(self):
+        return self._tidal

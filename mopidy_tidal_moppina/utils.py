@@ -1,102 +1,42 @@
 import logging
+import urllib.parse
 
-from functools import lru_cache
-from mopidy.models import Ref, Artist, Album, Track
+from functools import lru_cache, partial
+from mopidy import models
 
 logger = logging.getLogger(__name__)
 
 
-def to_artists(tidal_artists):
-    return [to_artist(a) for a in tidal_artists]
+def _new_image(id, id_type):
+    return models.Image(
+        uri=f"http://images.osl.wimpmusic.com/im/im?w=512&h=512&{id_type}={id}",
+        width=512,
+        height=512,
+    )
 
-@lru_cache(maxsize=128)
-def to_artist(tidal_artist):
-    if tidal_artist is None:
-        return None
-
-    return Artist(uri='tidal-moppina:artist:' + str(tidal_artist.id),
-                  name=tidal_artist.name)
-
-def to_albums(tidal_albums):
-    return [to_album(a, None) for a in tidal_albums]
-
-@lru_cache(maxsize=128)
-def to_album(tidal_album, artist):
-    if artist is None:
-        artist = to_artist(tidal_album.artist)
-    return Album(uri='tidal-moppina:album:' + str(tidal_album.id),
-                 name=tidal_album.name,
-                 artists=[artist])
+new_artist_image = partial(_new_image, id_type='artistid')
+new_album_image = partial(_new_image, id_type='albumid')
 
 
-def to_tracks(tidal_tracks):
-    return [to_track(None, None, t) for t in tidal_tracks]
+def generate_uri(scheme, uri_type, path):
+    if not path:
+        return f"{scheme}:{uri_type}"
+    return f"{scheme}:{uri_type}:{urllib.parse.quote('/'.join(path))}"
 
-@lru_cache(maxsize=128)
-def to_track(artist, album, tidal_track):
-    uri = 'tidal-moppina:track:{0}:{1}:{2}'.format(tidal_track.artist.id,
-                                           tidal_track.album.id,
-                                           tidal_track.id)
-    if artist is None:
-        artist = to_artist(tidal_track.artist)
-    if album is None:
-        album = to_album(tidal_track.album, artist)
+def _new_ref(scheme, name, path, ref_type=None):
+    # logger.debug('scheme=%s name=%s path=%s ref_type=%s', scheme, name, path, ref_type)
+    ref = getattr(models.Ref, ref_type)
+    return ref(uri=generate_uri(scheme, ref_type, path), name=name)
 
-    track_len = tidal_track.duration * 1000
-    return Track(uri=uri,
-                 name=tidal_track.name,
-                 track_no=tidal_track.track_num,
-                 artists=[artist],
-                 album=album,
-                 length=track_len,
-                 disc_no=tidal_track.disc_num)
+new_directory_ref = partial(_new_ref, ref_type='directory')
+new_artist_ref = partial(_new_ref, ref_type='artist')
+new_album_ref = partial(_new_ref, ref_type='album')
+new_track_ref = partial(_new_ref, ref_type='track')
 
-def to_artists_ref(tidal_artists):
-    return [to_artist_ref(a) for a in tidal_artists]
+def _new_model(scheme, name, path, model_type=None, **kwargs):
+    model = getattr(models, model_type)
+    return model(uri=generate_uri(scheme, model_type.lower(), path), name=name, **kwargs)
 
-@lru_cache(maxsize=128)
-def to_artist_ref(tidal_artist):
-    return Ref.artist(uri='tidal-moppina:artist:' + str(tidal_artist.id),
-                      name=tidal_artist.name)
-
-def to_playlists_ref(tidal_playlists):
-    return [to_playlist_ref(p) for p in tidal_playlists]
-
-@lru_cache(maxsize=128)
-def to_playlist_ref(tidal_playlist):
-    return Ref.playlist(uri='tidal-moppina:playlist:' + str(tidal_playlist.id),
-                        name=tidal_playlist.name)
-
-def to_moods_ref(tidal_moods):
-    return [to_mood_ref(m) for m in tidal_moods]
-
-@lru_cache(maxsize=128)
-def to_mood_ref(tidal_mood):
-    return Ref.playlist(uri='tidal-moppina:mood:' + str(tidal_mood.id),
-                        name=tidal_mood.name)
-
-def to_genres_ref(tidal_genres):
-    return [to_genre_ref(m) for m in tidal_genres]
-
-@lru_cache(maxsize=128)
-def to_genre_ref(tidal_genre):
-    return Ref.playlist(uri='tidal-moppina:genre:' + str(tidal_genre.id),
-                        name=tidal_genre.name)
-
-def to_albums_ref(tidal_albums):
-    return [to_album_ref(a) for a in tidal_albums]
-
-@lru_cache(maxsize=128)
-def to_album_ref(tidal_album):
-    return Ref.album(uri='tidal-moppina:album:' + str(tidal_album.id),
-                     name=tidal_album.name)
-
-def to_tracks_ref(tidal_tracks):
-    return [to_track_ref(t) for t in tidal_tracks]
-
-@lru_cache(maxsize=128)
-def to_track_ref(tidal_track):
-    uri = 'tidal-moppina:track:{0}:{1}:{2}'.format(tidal_track.artist.id,
-                                           tidal_track.album.id,
-                                           tidal_track.id)
-    return Ref.track(uri=uri, name=tidal_track.name)
+new_artist = partial(_new_model, model_type='Artist')
+new_album = partial(_new_model, model_type='Album')
+new_track = partial(_new_model, model_type='Track')
