@@ -21,7 +21,7 @@ new_album_image = partial(_new_image, id_type='albumid')
 def generate_uri(scheme, uri_type, path):
     if not path:
         return f"{scheme}:{uri_type}"
-    return f"{scheme}:{uri_type}:{urllib.parse.quote('/'.join(path))}"
+    return f"{scheme}:{uri_type}:{''.join(path)}"
 
 def _new_ref(scheme, name, path, ref_type=None):
     # logger.debug('scheme=%s name=%s path=%s ref_type=%s', scheme, name, path, ref_type)
@@ -37,6 +37,14 @@ def _new_model(scheme, name, path, model_type=None, **kwargs):
     model = getattr(models, model_type)
     return model(uri=generate_uri(scheme, model_type.lower(), path), name=name, **kwargs)
 
-new_artist = partial(_new_model, model_type='Artist')
+# new_artist = partial(_new_model, model_type='Artist')
 new_album = partial(_new_model, model_type='Album')
 new_track = partial(_new_model, model_type='Track')
+
+def new_artist(scheme, name, path):
+    artist = models.Artist(
+        uri='tidal-moppina:artist:{}'.format(''.join(path)),
+        name=name
+    )
+    logger.warn(path)
+    return artist

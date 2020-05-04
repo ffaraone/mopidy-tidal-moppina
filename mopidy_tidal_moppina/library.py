@@ -149,7 +149,6 @@ class TidalMoppinaLibraryProvider(backend.LibraryProvider):
         method = getattr(self, f"_get_{field}")
         results = [ method(item) for item in data ]
         kwargs = {
-            "uri": f"{self._uri_scheme}:search:{field}:{search_id}",
             "artists": [],
             "albums": [],
             "tracks": [],
@@ -160,36 +159,34 @@ class TidalMoppinaLibraryProvider(backend.LibraryProvider):
     def search(self, query=None, uris=None, exact=False):
         # TODO check if query is for me
         logger.debug('query=%s, uris=%s, exact=%s', query, uris, exact)
-        
-        if 'any' in query:
-            query['album'] = query['any']
-            query['artist'] = query['any']
-            query['track'] = query['any']
-            res = SearchResult(
-                uri='tidal-moppina:search:any',
-                albums=self._perform_search('album', query).albums,
-                artists=self._perform_search('artist', query).artists,
-                tracks=self._perform_search('track', query).tracks,
-            )
-            return res
-        if 'album' in query:
-            query['artist'] = query['album']
-            res = SearchResult(
-                uri='tidal-moppina:search:album',
-                albums=self._perform_search('album', query).albums,
-                artists=self._perform_search('artist', query).artists,
-                tracks=[],
-            )
-            return res
-        if 'artist' in query:
+        for (field, values) in query.items():
+            if not hasattr(values, '__iter__'):
+                values = [values]
+            search_val = values[0]
             return SearchResult(
-                uri='tidal-moppina:search:artist',
-                artists=self._perform_search('artist', query).artists,
-                albums=[],
-                tracks=[],
+                albums=self._perform_search('album', {'album': search_val}).albums,
+                artists=self._perform_search('artist', {'artist': search_val}).artists,
+                tracks=self._perform_search('track', {'track': search_val}).tracks,
             )
+        
+        # if 'any' in query:
+        #     pass
+        #     # query['album'] = query['any']
+        #     # query['artist'] = query['any']
+        #     # query['track'] = query['any']
+        #     # res = SearchResult(
+        #     #     uri='tidal-moppina:search:any',
 
-        return SearchResult(uri="tidal-moppina:search:any", artists=[], albums=[], tracks=[])
+        #     # )
+        #     # return res
+        # if 'album' in query:
+        #     return self._perform_search('album', query)
+        # if 'artist' in query:
+        #     res = self._perform_search('artist', query)
+        #     logger.info(res.artists)
+        #     # return self._perform_search('artist', query)
+
+        return SearchResult(artists=[], albums=[], tracks=[])
 
     def get_images(self, uris):
         logger.debug("Searching Tidal for images for %s" % uris)
@@ -213,7 +210,7 @@ class TidalMoppinaLibraryProvider(backend.LibraryProvider):
 
     def lookup(self, uris=None):
         try:
-            logger.info("Lookup uris %r", uris)
+            # logger.info("Lookup uris %r", uris)
             if isinstance(uris, str):
                 uris = [uris]
 

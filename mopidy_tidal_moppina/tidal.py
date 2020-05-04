@@ -133,13 +133,18 @@ class TidalClient:
 
 
     def search(self, obj_type, keywords):
-        url = f"{self._api_location}/search/{obj_type}s"
+        url = f"{self._api_location}/search"
+        search_type = f'{obj_type}s'
         params = self._get_request_params()
         params['query'] = keywords
+        params['types'] = search_type.upper()
         response = requests.get(url, params=params)
         data = self._check_response(response)
+        return data.get(search_type, {}).get('items', [])
         # logger.debug('search=%s', data)
-        return data.get('items', [])
+        # return data.get('items', [])
+
+    # ?query=david%20bowie&limit=25&offset=0&types=ARTISTS,ALBUMS,TRACKS,VIDEOS,PLAYLISTS&includeContributors=true&countryCode=ES
 
     # def artists(self):
     #     return self._session._map_request(self._base_url + '/artists', ret='artists')
